@@ -1,10 +1,6 @@
 import os
-import json
-from flask import Flask, render_template, request, Response, stream_with_context
 import anthropic
-
-app = Flask(__name__)
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+import streamlit as st
 
 SYSTEM_PROMPT = """Sei un esploratore di futuri possibili — un compagno di viaggio curioso e empatico che aiuta le persone a immaginare, esplorare e riflettere sui loro futuri potenziali.
 
@@ -28,38 +24,68 @@ Temi da esplorare:
 
 Inizia sempre con calore e curiosità. Parla in italiano a meno che l'utente non scriva in un'altra lingua."""
 
+st.set_page_config(
+    page_title="Futuri Possibili",
+    page_icon="🔮",
+    layout="centered",
+)
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+st.markdown("""
+<style>
+  [data-testid="stChatMessage"] { background: transparent; }
+  .stChatInputContainer { border-top: 1px solid rgba(124,106,245,0.2); }
+</style>
+""", unsafe_allow_html=True)
 
+st.title("🔮 Futuri Possibili")
+st.caption("Esplora i tuoi orizzonti con un esploratore di futuri")
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    data = request.json
-    messages = data.get("messages", [])
+SUGGESTIONS = [
+    "La mia carriera tra 10 anni",
+    "Dove vorrei vivere",
+    "Chi voglio diventare",
+    "Il mio futuro ideale",
+    "Ho paura del futuro",
+]
 
-    def generate():
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+    st.info(
+        "Benvenuta nel tuo spazio dei futuri ✨  \n"
+        "Sono qui per esplorare con te i tuoi futuri possibili — non per darti risposte, "
+        "ma per aiutarti a scoprirle."
+    )
+    cols = st.columns(len(SUGGESTIONS))
+    for col, suggestion in zip(cols, SUGGESTIONS):
+        if col.button(suggestion, use_container_width=True):
+            st.session_state.prefill = suggestion
+            st.rerun()
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"], avatar="🔮" if msg["role"] == "assistant" else None):
+        st.markdown(msg["content"])
+
+prefill = st.session_state.pop("prefill", None)
+prompt = st.chat_input("Scrivi qui il tuo pensiero...") or prefill
+
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY"))
+
+    with st.chat_message("assistant", avatar="🔮"):
+        api_messages = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.messages
+        ]
         with client.messages.stream(
             model="claude-opus-4-6",
             max_tokens=1024,
             system=SYSTEM_PROMPT,
-            messages=messages,
-            thinking={"type": "adaptive"},
+            messages=api_messages,
         ) as stream:
-            for text in stream.text_stream:
-                yield f"data: {json.dumps({'text': text})}\n\n"
-        yield "data: [DONE]\n\n"
+            response = st.write_stream(stream.text_stream)
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    st.session_state.messages.append({"role": "assistant", "content": response})
