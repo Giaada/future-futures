@@ -73,7 +73,14 @@ if prompt:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY"))
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        try:
+            api_key = st.secrets["ANTHROPIC_API_KEY"]
+        except (KeyError, FileNotFoundError):
+            st.error("⚠️ Chiave API non trovata. Aggiungila in Streamlit Cloud → Settings → Secrets:\n```\nANTHROPIC_API_KEY = \"sk-ant-...\"\n```")
+            st.stop()
+    client = anthropic.Anthropic(api_key=api_key)
 
     with st.chat_message("assistant", avatar="🔮"):
         api_messages = [
